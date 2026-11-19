@@ -1,0 +1,1804 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="focus">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Pomodoro</title>
+<style>
+  :root {
+    --bg: #F2F2F7;
+    --surface: #FFFFFF;
+    --separator: rgba(60, 60, 67, 0.18);
+    --text: #000000;
+    --text-secondary: rgba(60, 60, 67, 0.6);
+    --accent: #FF3B30;
+    --accent-break: #34C759;
+
+    --mode-accent: var(--accent);
+    --track: var(--separator);
+    --indicator: var(--surface);
+    --on-accent: #FFFFFF;
+
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, Inter, sans-serif;
+    --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #000000;
+      --surface: #1C1C1E;
+      --separator: rgba(84, 84, 88, 0.45);
+      --text: #FFFFFF;
+      --text-secondary: rgba(235, 235, 245, 0.6);
+      --accent: #FF453A;
+      --accent-break: #30D158;
+    }
+  }
+
+  :root[data-mode="break"],
+  :root[data-mode="longBreak"] {
+    --mode-accent: var(--accent-break);
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 17px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 32px;
+    max-width: 420px;
+    margin: 0 auto;
+    padding: 32px 24px 0;
+  }
+
+  .top-bar {
+    display: flex;
+    justify-content: flex-end;
+    width: 100%;
+    margin-bottom: -16px;
+  }
+
+  .mute {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    margin-right: -12px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: color 200ms var(--ease);
+  }
+
+  .mute[aria-pressed="true"] {
+    color: var(--text);
+  }
+
+  .mute svg {
+    display: none;
+  }
+
+  .mute[aria-pressed="false"] .icon-sound,
+  .mute[aria-pressed="true"] .icon-muted {
+    display: block;
+  }
+
+  .segmented {
+    position: relative;
+    display: flex;
+    width: 100%;
+    padding: 2px;
+    border-radius: 10px;
+    background: var(--track);
+  }
+
+  .segment-indicator {
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    left: 2px;
+    width: calc((100% - 4px) / 3);
+    border-radius: 8px;
+    background: var(--indicator);
+    transition: transform 350ms var(--ease);
+  }
+
+  .segment {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 0;
+    min-height: 40px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 200ms var(--ease);
+  }
+
+  .segment.is-active {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .timer {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 280px;
+    height: 280px;
+  }
+
+  .ring {
+    position: absolute;
+    inset: 0;
+    transform: rotate(-90deg);
+  }
+
+  .ring-track,
+  .ring-progress {
+    fill: none;
+    stroke-width: 6;
+    stroke-linecap: round;
+  }
+
+  .ring-track {
+    stroke: var(--track);
+  }
+
+  .ring-progress {
+    stroke: var(--mode-accent);
+    transition: stroke 400ms var(--ease);
+  }
+
+  .ring-progress.is-resetting {
+    transition: stroke 400ms var(--ease), stroke-dasharray 500ms var(--ease);
+  }
+
+  .ring.is-pulsing {
+    animation: ring-pulse 1200ms var(--ease) 1;
+  }
+
+  @keyframes ring-pulse {
+    0% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.7;
+    }
+    100% {
+      opacity: 1;
+    }
+  }
+
+  .timer-face {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .digits {
+    display: flex;
+    justify-content: center;
+    height: 1em;
+    font-size: 64px;
+    font-weight: 250;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .digit-cell {
+    position: relative;
+    width: 1ch;
+    height: 1em;
+  }
+
+  .digit-colon {
+    width: 0.5ch;
+    height: 1em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .digit-face {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+  }
+
+  .digit-face.is-current {
+    opacity: 1;
+  }
+
+  .digit-face.is-in {
+    animation: digit-in 200ms var(--ease) both;
+  }
+
+  .digit-face.is-out {
+    animation: digit-out 200ms var(--ease) both;
+  }
+
+  @keyframes digit-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes digit-out {
+    from {
+      opacity: 1;
+      transform: none;
+    }
+    to {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+  }
+
+  .mode-label {
+    display: grid;
+    max-width: 240px;
+    font-size: 15px;
+    color: var(--text-secondary);
+  }
+
+  .mode-label .label-face {
+    grid-area: 1 / 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 200ms var(--ease);
+  }
+
+  .mode-label .label-face.is-current {
+    opacity: 1;
+  }
+
+  .controls {
+    display: grid;
+    width: 100%;
+    justify-items: center;
+  }
+
+  .control-group {
+    grid-area: 1 / 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 300ms var(--ease), visibility 0s linear 300ms;
+  }
+
+  .control-group.is-current {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 300ms var(--ease), visibility 0s;
+  }
+
+  .primary {
+    display: inline-grid;
+    place-items: center;
+    min-height: 48px;
+    min-width: 128px;
+    padding: 0 32px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--mode-accent);
+    color: var(--on-accent);
+    font-family: inherit;
+    font-size: 17px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 400ms var(--ease), transform 120ms var(--ease);
+  }
+
+  .primary .label-face {
+    grid-area: 1 / 1;
+    opacity: 0;
+    transition: opacity 150ms var(--ease);
+  }
+
+  .primary .label-face.is-current {
+    opacity: 1;
+  }
+
+  .text-button {
+    min-height: 44px;
+    padding: 0 16px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--mode-accent);
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 400ms var(--ease), transform 120ms var(--ease);
+  }
+
+  .primary:active,
+  .text-button:active {
+    transform: scale(0.96);
+  }
+
+  .dots {
+    display: flex;
+    gap: 8px;
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--track);
+    transition: background-color 400ms var(--ease);
+  }
+
+  .dot.is-on {
+    background: var(--accent);
+  }
+
+  .tasks {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: 100%;
+  }
+
+  .task-group {
+    background: var(--surface);
+    border-radius: 12px;
+  }
+
+  .task-add {
+    display: flex;
+    align-items: center;
+  }
+
+  .task-input {
+    flex: 1;
+    min-height: 48px;
+    padding: 0 16px;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 17px;
+  }
+
+  .task-input::placeholder {
+    color: var(--text-secondary);
+  }
+
+  .task-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .task-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-height: 48px;
+    padding-right: 8px;
+    overflow: hidden;
+    transition: height 250ms var(--ease), opacity 250ms var(--ease);
+  }
+
+  .task-row::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 44px;
+    right: 0;
+    height: 0.5px;
+    background: var(--separator);
+  }
+
+  .task-check {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .check-circle {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border: 1.5px solid var(--separator);
+    border-radius: 50%;
+    transition: background-color 200ms var(--ease), border-color 200ms var(--ease);
+  }
+
+  .check-mark {
+    stroke: var(--on-accent);
+    stroke-dasharray: 20;
+    stroke-dashoffset: 20;
+    transition: stroke-dashoffset 200ms var(--ease);
+  }
+
+  .task-row.is-done .check-circle {
+    border-color: var(--accent);
+    background: var(--accent);
+  }
+
+  .task-row.is-done .check-mark {
+    stroke-dashoffset: 0;
+  }
+
+  .task-title {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    height: 44px;
+    padding: 0 8px 0 0;
+    border: 0;
+    overflow: hidden;
+    background: transparent;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 17px;
+    line-height: 44px;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .task-row.is-done .task-title {
+    color: var(--text-secondary);
+    text-decoration: line-through;
+    cursor: default;
+  }
+
+  .task-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-right: 8px;
+  }
+
+  .task-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity 200ms var(--ease);
+  }
+
+  .task-row.is-active .task-dot {
+    opacity: 1;
+  }
+
+  .task-count {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .task-actions {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    padding-right: 8px;
+    background: var(--surface);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 150ms var(--ease);
+  }
+
+  .task-row:hover .task-actions,
+  .task-row:focus-within .task-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .task-action {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .task-edit {
+    flex: 1;
+    min-width: 0;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 17px;
+  }
+
+  .task-empty {
+    margin: 0;
+    font-size: 15px;
+    color: var(--text-secondary);
+  }
+
+  .done-group {
+    overflow: hidden;
+  }
+
+  .done-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 48px;
+    padding: 0 16px;
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 15px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .done-toggle .chevron {
+    margin-left: auto;
+    transition: transform 200ms var(--ease);
+  }
+
+  .done-toggle[aria-expanded="true"] .chevron {
+    transform: rotate(90deg);
+  }
+
+  .undo-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 48px;
+    padding: 0 8px 0 16px;
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .undo-text {
+    font-size: 15px;
+    color: var(--text-secondary);
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--mode-accent);
+    outline-offset: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .segment-indicator {
+      transition: none;
+    }
+
+    .ring-progress.is-resetting {
+      transition: stroke 400ms var(--ease);
+    }
+
+    .primary:active,
+    .text-button:active {
+      transform: none;
+    }
+
+    @keyframes digit-in {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    @keyframes digit-out {
+      from {
+        opacity: 1;
+      }
+      to {
+        opacity: 0;
+      }
+    }
+
+    .task-row {
+      transition: opacity 250ms var(--ease);
+    }
+  }
+</style>
+</head>
+<body>
+  <main class="app">
+    <div class="top-bar">
+      <button type="button" class="mute" id="mute" aria-pressed="false" aria-label="Mute">
+        <svg class="icon-sound" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"
+             fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 9.5h3.2L11.5 6v12L7.2 14.5H4z"></path>
+          <path d="M15.5 9.2a4 4 0 0 1 0 5.6"></path>
+          <path d="M18 6.8a7.5 7.5 0 0 1 0 10.4"></path>
+        </svg>
+        <svg class="icon-muted" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"
+             fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 9.5h3.2L11.5 6v12L7.2 14.5H4z"></path>
+          <path d="M15.5 9.5l5 5"></path>
+          <path d="M20.5 9.5l-5 5"></path>
+        </svg>
+      </button>
+    </div>
+
+    <div class="segmented" role="group" aria-label="Timer mode">
+      <span class="segment-indicator" id="segmentIndicator" aria-hidden="true"></span>
+      <button type="button" class="segment is-active" data-mode="focus" aria-pressed="true">Focus</button>
+      <button type="button" class="segment" data-mode="break" aria-pressed="false">Break</button>
+      <button type="button" class="segment" data-mode="longBreak" aria-pressed="false">Long Break</button>
+    </div>
+
+    <div class="timer">
+      <svg class="ring" viewBox="0 0 280 280" width="280" height="280" aria-hidden="true">
+        <circle class="ring-track" cx="140" cy="140" r="137" pathLength="100"></circle>
+        <circle class="ring-progress" id="ringProgress" cx="140" cy="140" r="137" pathLength="100"></circle>
+      </svg>
+      <div class="timer-face">
+        <div class="digits" id="digits" role="timer" aria-label="25:00">
+          <span class="digit-cell"><span class="digit-face is-current" aria-hidden="true">2</span><span class="digit-face" aria-hidden="true"></span></span>
+          <span class="digit-cell"><span class="digit-face is-current" aria-hidden="true">5</span><span class="digit-face" aria-hidden="true"></span></span>
+          <span class="digit-colon" aria-hidden="true">:</span>
+          <span class="digit-cell"><span class="digit-face is-current" aria-hidden="true">0</span><span class="digit-face" aria-hidden="true"></span></span>
+          <span class="digit-cell"><span class="digit-face is-current" aria-hidden="true">0</span><span class="digit-face" aria-hidden="true"></span></span>
+        </div>
+        <div class="mode-label" id="modeLabel">
+          <span class="label-face is-current">Focus</span>
+          <span class="label-face" aria-hidden="true"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="control-group is-current" id="timerControls">
+        <button type="button" class="primary" id="primary" aria-label="Start">
+          <span class="label-face is-current" aria-hidden="true">Start</span>
+          <span class="label-face" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="text-button" id="reset">Reset</button>
+      </div>
+      <div class="control-group" id="endControls" aria-hidden="true">
+        <button type="button" class="primary" id="startBreak">Start Break</button>
+        <button type="button" class="text-button" id="addFive">Add 5 Minutes</button>
+      </div>
+    </div>
+
+    <div class="dots" aria-hidden="true">
+      <span class="dot"></span>
+      <span class="dot"></span>
+      <span class="dot"></span>
+      <span class="dot"></span>
+    </div>
+
+    <section class="tasks" id="tasks" aria-label="Tasks">
+      <div class="task-group">
+        <form class="task-add" id="taskAdd">
+          <input class="task-input" id="taskInput" type="text" placeholder="Add task"
+                 autocomplete="off" aria-label="Add task">
+        </form>
+        <ul class="task-list" id="taskList"></ul>
+      </div>
+
+      <p class="task-empty" id="taskEmpty">No tasks yet. Add one to begin.</p>
+
+      <div class="task-group done-group" id="doneGroup" hidden>
+        <button type="button" class="done-toggle" id="doneToggle" aria-expanded="false"
+                aria-controls="doneList">
+          <span>Done</span>
+          <span class="task-count" id="doneCount"></span>
+          <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"
+               fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 6l6 6-6 6"></path>
+          </svg>
+        </button>
+        <ul class="task-list" id="doneList" hidden></ul>
+      </div>
+
+      <div class="undo-bar" id="undoBar" hidden>
+        <span class="undo-text">Task deleted</span>
+        <button type="button" class="text-button undo-button" id="undoBtn">Undo</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const MINUTES = { focus: 25, break: 5, longBreak: 15 };
+    const MODE_LABEL = { focus: 'Focus', break: 'Break', longBreak: 'Long Break' };
+    const SESSIONS_PER_LONG_BREAK = 4;
+    const STORAGE_KEY = 'pomodoro.muted';
+    const TASKS_KEY = 'pomodoro.tasks';
+    const UNDO_WINDOW = 5000;
+
+    const SOUND = {
+      masterGain: 0.18,        // overall volume, kept in the 0.15-0.25 range
+      attack: 0.003,           // seconds to fade a note in, so it does not click
+      release: 0.02,           // seconds to fade a note out to near zero before it stops
+      tap: { frequency: 1200, duration: 0.04, gain: 0.12 },              // mode change
+      start: { frequencies: [660, 880], duration: 0.09, gap: 0.06, gain: 0.2 }, // two rising notes
+      pause: { from: 660, to: 520, duration: 0.12, gain: 0.18 },          // short downward slide
+      reset: { frequency: 440, duration: 0.08, gain: 0.16 },              // single low note
+      add: { frequency: 880, duration: 0.07, gain: 0.14 },                // soft pop when a task is added
+      check: { frequencies: [784, 988, 1175], duration: 0.055, gap: 0.02, gain: 0.14 }, // three quick notes
+      delete: { duration: 0.09, gain: 0.06, cutoff: 1200 },               // lowpass noise swish
+      alarm: {
+        notes: [523, 659, 784],   // rising three-note chime
+        noteDuration: 0.4,        // seconds between note starts
+        attack: 0.04,             // seconds each note fades in
+        release: 0.9,             // seconds each note decays
+        startGain: 0.05,          // volume when a ring begins
+        endGain: 0.22,            // volume reached after rampTime
+        rampTime: 2,              // seconds to rise from startGain to endGain
+        repeats: 2,               // rings per finished session, then it stops
+        gap: 8,                   // seconds between rings
+        reverbDelay: 0.09,        // short echo, seconds
+        reverbFeedback: 0.22,     // echo feedback, kept low
+        reverbMix: 0.25,          // echo level
+        stopFade: 0.3,            // seconds to fade out when a tap stops it
+      },
+    };
+
+    const root = document.documentElement;
+    const ringProgress = document.getElementById('ringProgress');
+    const digitsEl = document.getElementById('digits');
+    const modeLabel = document.getElementById('modeLabel');
+    const primaryBtn = document.getElementById('primary');
+    const resetBtn = document.getElementById('reset');
+    const segmentEls = document.querySelectorAll('.segment');
+    const segmentIndicator = document.getElementById('segmentIndicator');
+    const dotEls = document.querySelectorAll('.dot');
+    const muteBtn = document.getElementById('mute');
+    const ringEl = document.querySelector('.ring');
+    const timerControls = document.getElementById('timerControls');
+    const endControls = document.getElementById('endControls');
+    const startBreakBtn = document.getElementById('startBreak');
+    const addFiveBtn = document.getElementById('addFive');
+    const taskForm = document.getElementById('taskAdd');
+    const taskInput = document.getElementById('taskInput');
+    const taskList = document.getElementById('taskList');
+    const taskEmpty = document.getElementById('taskEmpty');
+    const doneGroup = document.getElementById('doneGroup');
+    const doneToggle = document.getElementById('doneToggle');
+    const doneList = document.getElementById('doneList');
+    const doneCount = document.getElementById('doneCount');
+    const undoBar = document.getElementById('undoBar');
+    const undoBtn = document.getElementById('undoBtn');
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+    const digitCells = Array.prototype.map.call(document.querySelectorAll('.digit-cell'), function (cell) {
+      const faces = cell.querySelectorAll('.digit-face');
+      return { faces: faces, front: 0, char: faces[0].textContent };
+    });
+
+    const state = {
+      mode: 'focus',
+      totalMs: MINUTES.focus * 60000,
+      remainingMs: MINUTES.focus * 60000,
+      endAt: 0,
+      running: false,
+      finished: false,
+      sessions: 0,
+    };
+
+    let frame = 0;
+    let ringResetTimer = 0;
+    let shownDigits = '25:00';
+    let audioContext = null;
+    let masterGain = null;
+    let muted = false;
+    let finishTimer = 0;
+    let notificationsRequested = false;
+    let alarmBus = null;
+    let alarmDelay = null;
+    let alarmFeedback = null;
+    let alarmWet = null;
+    let alarmRepeatTimer = 0;
+    let alarmEndTimer = 0;
+    let alarmActive = false;
+    let tasks = [];
+    let undoState = null;
+
+    function format(ms) {
+      const totalSeconds = Math.ceil(ms / 1000);
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+    }
+
+    function animateDigit(cell, char) {
+      const outgoing = cell.faces[cell.front];
+      const incoming = cell.faces[1 - cell.front];
+      cell.front = 1 - cell.front;
+      cell.char = char;
+
+      incoming.textContent = char;
+      incoming.classList.remove('is-out');
+      incoming.classList.add('is-current', 'is-in');
+
+      outgoing.classList.remove('is-current', 'is-in');
+      outgoing.classList.add('is-out');
+
+      window.setTimeout(function () {
+        if (!outgoing.classList.contains('is-current')) outgoing.textContent = '';
+      }, 220);
+    }
+
+    function setDigits(text) {
+      if (text === shownDigits) return;
+      shownDigits = text;
+      digitsEl.setAttribute('aria-label', text);
+
+      let cellIndex = 0;
+      for (let i = 0; i < text.length; i += 1) {
+        const char = text.charAt(i);
+        if (char === ':') continue;
+        const cell = digitCells[cellIndex];
+        cellIndex += 1;
+        if (!cell || cell.char === char) continue;
+        animateDigit(cell, char);
+      }
+    }
+
+    function crossfadeFaces(container, text) {
+      const faces = container.querySelectorAll('.label-face');
+      let active = 0;
+      Array.prototype.forEach.call(faces, function (face, index) {
+        if (face.classList.contains('is-current')) active = index;
+      });
+      if (faces[active].textContent === text) return;
+      const next = active === 0 ? 1 : 0;
+
+      faces[next].textContent = text;
+      faces[next].setAttribute('aria-hidden', 'false');
+      faces[next].classList.add('is-current');
+      faces[active].classList.remove('is-current');
+      faces[active].setAttribute('aria-hidden', 'true');
+    }
+
+    function setModeLabel(text) {
+      crossfadeFaces(modeLabel, text);
+    }
+
+    function setButtonLabel(text) {
+      crossfadeFaces(primaryBtn, text);
+      primaryBtn.setAttribute('aria-label', text);
+    }
+
+    function readMuted() {
+      try {
+        return window.localStorage.getItem(STORAGE_KEY) === '1';
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function writeMuted(value) {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, value ? '1' : '0');
+      } catch (error) {
+        return;
+      }
+    }
+
+    function ensureAudio() {
+      if (audioContext) {
+        if (audioContext.state === 'suspended') audioContext.resume();
+        return audioContext;
+      }
+      if (typeof window.AudioContext === 'undefined') return null;
+
+      audioContext = new window.AudioContext();
+      masterGain = audioContext.createGain();
+      masterGain.gain.value = SOUND.masterGain;
+      masterGain.connect(audioContext.destination);
+      if (audioContext.state === 'suspended') audioContext.resume();
+      return audioContext;
+    }
+
+    function playNote(startAt, from, to, duration, peak) {
+      const oscillator = audioContext.createOscillator();
+      const envelope = audioContext.createGain();
+      const end = startAt + duration;
+      const holdUntil = Math.max(startAt + SOUND.attack, end - SOUND.release);
+
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(from, startAt);
+      if (to !== from) oscillator.frequency.exponentialRampToValueAtTime(to, end);
+
+      envelope.gain.setValueAtTime(0.0001, startAt);
+      envelope.gain.exponentialRampToValueAtTime(peak, startAt + SOUND.attack);
+      envelope.gain.setValueAtTime(peak, holdUntil);
+      envelope.gain.exponentialRampToValueAtTime(0.0001, end);
+
+      oscillator.connect(envelope);
+      envelope.connect(masterGain);
+      oscillator.start(startAt);
+      oscillator.stop(end + 0.02);
+    }
+
+    function playSound(name) {
+      if (muted) return;
+      if (!ensureAudio()) return;
+      const now = audioContext.currentTime + 0.01;
+
+      if (name === 'tap') {
+        playNote(now, SOUND.tap.frequency, SOUND.tap.frequency, SOUND.tap.duration, SOUND.tap.gain);
+      } else if (name === 'start') {
+        const step = SOUND.start.duration + SOUND.start.gap;
+        SOUND.start.frequencies.forEach(function (frequency, index) {
+          playNote(now + index * step, frequency, frequency, SOUND.start.duration, SOUND.start.gain);
+        });
+      } else if (name === 'pause') {
+        playNote(now, SOUND.pause.from, SOUND.pause.to, SOUND.pause.duration, SOUND.pause.gain);
+      } else if (name === 'reset') {
+        playNote(now, SOUND.reset.frequency, SOUND.reset.frequency, SOUND.reset.duration, SOUND.reset.gain);
+      } else if (name === 'add') {
+        playNote(now, SOUND.add.frequency, SOUND.add.frequency, SOUND.add.duration, SOUND.add.gain);
+      } else if (name === 'check') {
+        const checkStep = SOUND.check.duration + SOUND.check.gap;
+        SOUND.check.frequencies.forEach(function (frequency, index) {
+          playNote(now + index * checkStep, frequency, frequency, SOUND.check.duration, SOUND.check.gain);
+        });
+      } else if (name === 'delete') {
+        playNoise(now);
+      }
+    }
+
+    function playNoise(startAt) {
+      const duration = SOUND.delete.duration;
+      const rate = audioContext.sampleRate;
+      const buffer = audioContext.createBuffer(1, Math.max(1, Math.floor(rate * duration)), rate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
+
+      const source = audioContext.createBufferSource();
+      source.buffer = buffer;
+
+      const filter = audioContext.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(SOUND.delete.cutoff, startAt);
+
+      const envelope = audioContext.createGain();
+      const end = startAt + duration;
+      envelope.gain.setValueAtTime(0.0001, startAt);
+      envelope.gain.exponentialRampToValueAtTime(SOUND.delete.gain, startAt + 0.01);
+      envelope.gain.exponentialRampToValueAtTime(0.0001, end);
+
+      source.connect(filter);
+      filter.connect(envelope);
+      envelope.connect(masterGain);
+      source.start(startAt);
+      source.stop(end + 0.02);
+    }
+
+    function buildAlarmGraph() {
+      alarmBus = audioContext.createGain();
+      alarmBus.connect(audioContext.destination);
+
+      alarmDelay = audioContext.createDelay(1);
+      alarmDelay.delayTime.value = SOUND.alarm.reverbDelay;
+      alarmFeedback = audioContext.createGain();
+      alarmFeedback.gain.value = SOUND.alarm.reverbFeedback;
+      alarmWet = audioContext.createGain();
+      alarmWet.gain.value = SOUND.alarm.reverbMix;
+
+      alarmBus.connect(alarmDelay);
+      alarmDelay.connect(alarmFeedback);
+      alarmFeedback.connect(alarmDelay);
+      alarmDelay.connect(alarmWet);
+      alarmWet.connect(audioContext.destination);
+    }
+
+    function disconnectAlarmNodes(bus, delay, feedback, wet) {
+      [bus, delay, feedback, wet].forEach(function (node) {
+        if (node) node.disconnect();
+      });
+    }
+
+    function releaseAlarmGraph() {
+      disconnectAlarmNodes(alarmBus, alarmDelay, alarmFeedback, alarmWet);
+      alarmBus = null;
+      alarmDelay = null;
+      alarmFeedback = null;
+      alarmWet = null;
+    }
+
+    function playAlarmRound() {
+      if (!alarmBus) return;
+      const now = audioContext.currentTime;
+      const cfg = SOUND.alarm;
+
+      alarmBus.gain.cancelScheduledValues(now);
+      alarmBus.gain.setValueAtTime(cfg.startGain, now);
+      alarmBus.gain.linearRampToValueAtTime(cfg.endGain, now + cfg.rampTime);
+
+      cfg.notes.forEach(function (frequency, index) {
+        const noteStart = now + index * cfg.noteDuration;
+        const end = noteStart + cfg.attack + cfg.release;
+        const oscillator = audioContext.createOscillator();
+        const envelope = audioContext.createGain();
+
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(frequency, noteStart);
+        envelope.gain.setValueAtTime(0.0001, noteStart);
+        envelope.gain.exponentialRampToValueAtTime(1, noteStart + cfg.attack);
+        envelope.gain.exponentialRampToValueAtTime(0.0001, end);
+
+        oscillator.connect(envelope);
+        envelope.connect(alarmBus);
+        oscillator.start(noteStart);
+        oscillator.stop(end + 0.02);
+      });
+    }
+
+    function startAlarm() {
+      if (muted || alarmActive) return;
+      if (!ensureAudio()) return;
+
+      alarmActive = true;
+      buildAlarmGraph();
+
+      let played = 0;
+      const ring = function () {
+        played += 1;
+        if (!alarmBus || !alarmActive) return;
+        playAlarmRound();
+        if (played < SOUND.alarm.repeats) {
+          alarmRepeatTimer = window.setTimeout(ring, SOUND.alarm.gap * 1000);
+        } else {
+          alarmEndTimer = window.setTimeout(function () {
+            alarmActive = false;
+            releaseAlarmGraph();
+          }, 2500);
+        }
+      };
+      ring();
+    }
+
+    function stopAlarm() {
+      if (!alarmActive) return;
+      alarmActive = false;
+      window.clearTimeout(alarmRepeatTimer);
+      window.clearTimeout(alarmEndTimer);
+      alarmRepeatTimer = 0;
+      alarmEndTimer = 0;
+
+      const bus = alarmBus;
+      const delay = alarmDelay;
+      const feedback = alarmFeedback;
+      const wet = alarmWet;
+      alarmBus = null;
+      alarmDelay = null;
+      alarmFeedback = null;
+      alarmWet = null;
+
+      if (bus && audioContext) {
+        const now = audioContext.currentTime;
+        bus.gain.cancelScheduledValues(now);
+        bus.gain.setValueAtTime(bus.gain.value, now);
+        bus.gain.exponentialRampToValueAtTime(0.0001, now + SOUND.alarm.stopFade);
+        window.setTimeout(function () {
+          disconnectAlarmNodes(bus, delay, feedback, wet);
+        }, (SOUND.alarm.stopFade + 0.1) * 1000);
+      } else {
+        disconnectAlarmNodes(bus, delay, feedback, wet);
+      }
+
+      restoreTitle();
+    }
+
+    function requestNotifications() {
+      if (notificationsRequested) return;
+      notificationsRequested = true;
+      if (typeof window.Notification === 'undefined') return;
+      if (window.Notification.permission !== 'default') return;
+      const result = window.Notification.requestPermission();
+      if (result && typeof result.catch === 'function') result.catch(function () {});
+    }
+
+    function notifyDone() {
+      if (typeof window.Notification === 'undefined') return;
+      if (window.Notification.permission !== 'granted') return;
+      try {
+        new window.Notification('Done', { body: 'Your timer has finished.', silent: true });
+      } catch (error) {
+        return;
+      }
+    }
+
+    function restoreTitle() {
+      document.title = 'Pomodoro';
+    }
+
+    function pulseRing() {
+      ringEl.classList.remove('is-pulsing');
+      void ringEl.offsetWidth;
+      ringEl.classList.add('is-pulsing');
+    }
+
+    function showTimerControls() {
+      endControls.classList.remove('is-current');
+      endControls.setAttribute('aria-hidden', 'true');
+      timerControls.classList.add('is-current');
+      timerControls.removeAttribute('aria-hidden');
+    }
+
+    function showEndControls() {
+      startBreakBtn.textContent = 'Start ' + MODE_LABEL[state.mode];
+      timerControls.classList.remove('is-current');
+      timerControls.setAttribute('aria-hidden', 'true');
+      endControls.classList.add('is-current');
+      endControls.setAttribute('aria-hidden', 'false');
+    }
+
+    function cancelFinish() {
+      window.clearTimeout(finishTimer);
+      finishTimer = 0;
+    }
+
+    function scheduleFinish() {
+      cancelFinish();
+      finishTimer = window.setTimeout(function () {
+        if (!state.running) return;
+        if (state.endAt - Date.now() > 0) {
+          scheduleFinish();
+          return;
+        }
+        state.remainingMs = 0;
+        finish();
+      }, Math.max(state.remainingMs, 0) + 20);
+    }
+
+    function renderMute() {
+      muteBtn.setAttribute('aria-pressed', muted ? 'true' : 'false');
+      muteBtn.setAttribute('aria-label', muted ? 'Unmute' : 'Mute');
+    }
+
+    function render() {
+      const fraction = state.totalMs > 0 ? state.remainingMs / state.totalMs : 0;
+      ringProgress.style.strokeDasharray = (fraction * 100).toFixed(2) + ' 100';
+      ringProgress.style.opacity = fraction > 0 ? '1' : '0';
+      setDigits(format(state.remainingMs));
+    }
+
+    function renderDots() {
+      dotEls.forEach(function (dot, index) {
+        dot.classList.toggle('is-on', index < state.sessions);
+      });
+    }
+
+    function updateSegments() {
+      segmentEls.forEach(function (el, index) {
+        const active = el.dataset.mode === state.mode;
+        el.classList.toggle('is-active', active);
+        el.setAttribute('aria-pressed', String(active));
+        if (active) segmentIndicator.style.transform = 'translateX(' + index * 100 + '%)';
+      });
+    }
+
+    function applyMode(mode) {
+      state.mode = mode;
+      state.totalMs = MINUTES[mode] * 60000;
+      root.dataset.mode = mode;
+      updateSegments();
+    }
+
+    function cancelTick() {
+      if (frame) cancelAnimationFrame(frame);
+      frame = 0;
+    }
+
+    function clearRingReset() {
+      if (ringResetTimer) window.clearTimeout(ringResetTimer);
+      ringResetTimer = 0;
+      ringProgress.classList.remove('is-resetting');
+    }
+
+    function animateRingReset() {
+      ringProgress.classList.add('is-resetting');
+      if (ringResetTimer) window.clearTimeout(ringResetTimer);
+      ringResetTimer = window.setTimeout(clearRingReset, 520);
+    }
+
+    function tick() {
+      if (!state.running) return;
+      const remaining = state.endAt - Date.now();
+      if (remaining <= 0) {
+        state.remainingMs = 0;
+        finish();
+        return;
+      }
+      state.remainingMs = remaining;
+      render();
+      frame = requestAnimationFrame(tick);
+    }
+
+    function start() {
+      if (state.running) return;
+      clearRingReset();
+      if (state.remainingMs <= 0) {
+        state.remainingMs = state.totalMs;
+        state.finished = false;
+        refreshLabel();
+      }
+      state.endAt = Date.now() + state.remainingMs;
+      state.running = true;
+      setButtonLabel('Pause');
+      showTimerControls();
+      restoreTitle();
+      requestNotifications();
+      render();
+      scheduleFinish();
+      tick();
+    }
+
+    function pause() {
+      if (!state.running) return;
+      state.remainingMs = Math.max(0, state.endAt - Date.now());
+      state.running = false;
+      cancelTick();
+      cancelFinish();
+      if (state.remainingMs <= 0) {
+        finish();
+        return;
+      }
+      setButtonLabel('Resume');
+      render();
+    }
+
+    function finish() {
+      const finishedMode = state.mode;
+      state.running = false;
+      state.finished = true;
+      state.remainingMs = 0;
+      cancelTick();
+      cancelFinish();
+      setButtonLabel('Start');
+      setModeLabel('Done');
+
+      if (finishedMode === 'focus') {
+        const current = activeTask();
+        if (current) {
+          current.pomodoros += 1;
+          saveTasks();
+          syncTaskCount(current);
+        }
+
+        state.sessions = Math.min(state.sessions + 1, SESSIONS_PER_LONG_BREAK);
+        renderDots();
+        applyMode(state.sessions >= SESSIONS_PER_LONG_BREAK ? 'longBreak' : 'break');
+      } else if (finishedMode === 'longBreak') {
+        state.sessions = 0;
+        renderDots();
+      }
+
+      render();
+      showEndControls();
+      pulseRing();
+      document.title = 'Done · 00:00';
+      startAlarm();
+      notifyDone();
+    }
+
+    function switchMode(mode) {
+      cancelTick();
+      cancelFinish();
+      state.running = false;
+      state.finished = false;
+      applyMode(mode);
+      state.remainingMs = state.totalMs;
+      refreshLabel();
+      setButtonLabel('Start');
+      showTimerControls();
+      restoreTitle();
+      animateRingReset();
+      render();
+    }
+
+    function resetTimer() {
+      cancelTick();
+      cancelFinish();
+      clearRingReset();
+      state.running = false;
+      state.finished = false;
+      state.remainingMs = state.totalMs;
+      refreshLabel();
+      setButtonLabel('Start');
+      showTimerControls();
+      restoreTitle();
+      render();
+    }
+
+    function loadTasks() {
+      try {
+        const raw = window.localStorage.getItem(TASKS_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        return parsed.map(function (item) {
+          if (!item || typeof item.title !== 'string' || !item.title.trim()) return null;
+          return {
+            id: typeof item.id === 'string' ? item.id : makeId(),
+            title: item.title,
+            pomodoros: Number.isFinite(item.pomodoros) ? item.pomodoros : 0,
+            done: item.done === true,
+            active: item.active === true,
+          };
+        }).filter(Boolean);
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function saveTasks() {
+      try {
+        window.localStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
+      } catch (error) {
+        return;
+      }
+    }
+
+    function makeId() {
+      return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    }
+
+    function activeTask() {
+      return tasks.find(function (task) { return task.active && !task.done; }) || null;
+    }
+
+    function refreshLabel() {
+      if (state.finished) {
+        setModeLabel('Done');
+        return;
+      }
+      const task = activeTask();
+      setModeLabel(task ? task.title : MODE_LABEL[state.mode]);
+    }
+
+    function updateEmpty() {
+      const hasActive = tasks.some(function (task) { return !task.done; });
+      taskEmpty.hidden = hasActive;
+    }
+
+    function taskRowById(id) {
+      return taskList.querySelector('[data-id="' + id + '"]') || doneList.querySelector('[data-id="' + id + '"]');
+    }
+
+    function syncTaskCount(task) {
+      const row = taskRowById(task.id);
+      if (!row) return;
+      const count = row.querySelector('.task-count');
+      if (!count) return;
+      count.textContent = task.pomodoros > 0 ? String(task.pomodoros) : '';
+      if (task.pomodoros > 0) {
+        count.setAttribute('aria-label', task.pomodoros === 1 ? '1 pomodoro' : task.pomodoros + ' pomodoros');
+      } else {
+        count.removeAttribute('aria-label');
+      }
+    }
+
+    function buildRow(task) {
+      const row = document.createElement('li');
+      row.className = 'task-row';
+      row.dataset.id = task.id;
+      if (task.done) row.classList.add('is-done');
+      if (task.active && !task.done) row.classList.add('is-active');
+
+      const check = document.createElement(task.done ? 'span' : 'button');
+      check.className = 'task-check';
+      if (!task.done) {
+        check.type = 'button';
+        check.setAttribute('aria-pressed', 'false');
+        check.setAttribute('aria-label', 'Complete ' + task.title);
+        check.addEventListener('click', function () { completeTask(task, row); });
+      }
+      check.innerHTML = '<span class="check-circle"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path class="check-mark" pathLength="20" d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>';
+      row.appendChild(check);
+
+      const title = document.createElement(task.done ? 'span' : 'button');
+      title.className = 'task-title';
+      title.textContent = task.title;
+      if (!task.done) {
+        title.type = 'button';
+        title.setAttribute('aria-pressed', String(task.active));
+        title.addEventListener('click', function (event) {
+          if (event.detail > 1) return;
+          setActiveTask(task);
+        });
+        title.addEventListener('dblclick', function () { startEdit(task, row); });
+      }
+      row.appendChild(title);
+
+      const meta = document.createElement('span');
+      meta.className = 'task-meta';
+      const dot = document.createElement('span');
+      dot.className = 'task-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      const count = document.createElement('span');
+      count.className = 'task-count';
+      count.textContent = task.pomodoros > 0 ? String(task.pomodoros) : '';
+      if (task.pomodoros > 0) {
+        count.setAttribute('aria-label', task.pomodoros === 1 ? '1 pomodoro' : task.pomodoros + ' pomodoros');
+      }
+      meta.appendChild(dot);
+      meta.appendChild(count);
+      row.appendChild(meta);
+
+      const actions = document.createElement('div');
+      actions.className = 'task-actions';
+
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'task-action';
+      editBtn.setAttribute('aria-label', 'Edit ' + task.title);
+      editBtn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19l1-4L16 5l3 3L9 18l-4 1z"></path></svg>';
+      editBtn.addEventListener('click', function () { startEdit(task, row); });
+      actions.appendChild(editBtn);
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'task-action';
+      deleteBtn.setAttribute('aria-label', 'Delete ' + task.title);
+      deleteBtn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14"></path><path d="M10 7V5h4v2"></path><path d="M7 7l1 12h8l1-12"></path></svg>';
+      deleteBtn.addEventListener('click', function () { deleteTask(task, row); });
+      actions.appendChild(deleteBtn);
+
+      row.appendChild(actions);
+
+      let touchStartX = 0;
+      let touchDx = 0;
+      row.addEventListener('touchstart', function (event) {
+        if (reduceMotion.matches) return;
+        touchStartX = event.touches[0].clientX;
+        touchDx = 0;
+      }, { passive: true });
+      row.addEventListener('touchmove', function (event) {
+        if (reduceMotion.matches || !touchStartX) return;
+        touchDx = Math.min(0, event.touches[0].clientX - touchStartX);
+        if (touchDx < -4) row.style.transform = 'translateX(' + Math.max(touchDx, -96) + 'px)';
+      }, { passive: true });
+      row.addEventListener('touchend', function () {
+        if (!touchDx) return;
+        const shouldDelete = touchDx <= -64;
+        row.style.transform = '';
+        touchStartX = 0;
+        touchDx = 0;
+        if (shouldDelete) deleteTask(task, row);
+      });
+
+      return row;
+    }
+
+    function animateRowIn(row) {
+      if (reduceMotion.matches) {
+        row.style.opacity = '0';
+        void row.offsetHeight;
+        row.style.opacity = '1';
+        return;
+      }
+      const height = row.offsetHeight;
+      row.style.height = '0px';
+      row.style.opacity = '0';
+      void row.offsetHeight;
+      row.style.height = height + 'px';
+      row.style.opacity = '1';
+      window.setTimeout(function () { row.style.height = ''; }, 260);
+    }
+
+    function animateRowOut(row, after) {
+      if (reduceMotion.matches) {
+        row.style.opacity = '0';
+        window.setTimeout(after, 250);
+        return;
+      }
+      const height = row.offsetHeight;
+      row.style.height = height + 'px';
+      row.style.opacity = '1';
+      void row.offsetHeight;
+      row.style.height = '0px';
+      row.style.opacity = '0';
+      window.setTimeout(after, 260);
+    }
+
+    function renderAll() {
+      taskList.innerHTML = '';
+      doneList.innerHTML = '';
+      tasks.forEach(function (task) {
+        const row = buildRow(task);
+        (task.done ? doneList : taskList).appendChild(row);
+      });
+      const doneTasks = tasks.filter(function (task) { return task.done; });
+      doneGroup.hidden = doneTasks.length === 0;
+      doneCount.textContent = doneTasks.length ? String(doneTasks.length) : '';
+      if (doneTasks.length === 0) {
+        doneList.hidden = true;
+        doneToggle.setAttribute('aria-expanded', 'false');
+      }
+      updateEmpty();
+    }
+
+    function syncRows() {
+      Array.prototype.forEach.call(document.querySelectorAll('.task-row'), function (row) {
+        const task = tasks.find(function (item) { return item.id === row.dataset.id; });
+        if (!task) return;
+        const active = task.active && !task.done;
+        row.classList.toggle('is-active', active);
+        const title = row.querySelector('.task-title');
+        if (title && title.tagName === 'BUTTON') title.setAttribute('aria-pressed', String(active));
+      });
+    }
+
+    function addTask(title) {
+      const task = { id: makeId(), title: title, pomodoros: 0, done: false, active: false };
+      tasks.push(task);
+      saveTasks();
+      const row = buildRow(task);
+      taskList.appendChild(row);
+      animateRowIn(row);
+      updateEmpty();
+      playSound('add');
+    }
+
+    function completeTask(task, row) {
+      if (task.done) return;
+      const wasActive = task.active;
+      task.done = true;
+      task.active = false;
+      row.classList.add('is-done');
+      row.classList.remove('is-active');
+      saveTasks();
+      playSound('check');
+      if (wasActive) refreshLabel();
+      window.setTimeout(function () { moveRowToDone(task, row); }, 220);
+    }
+
+    function moveRowToDone(task, row) {
+      if (!row.parentNode) return;
+      row.remove();
+      doneList.appendChild(buildRow(task));
+      doneGroup.hidden = false;
+      doneCount.textContent = String(tasks.filter(function (item) { return item.done; }).length);
+      updateEmpty();
+    }
+
+    function setActiveTask(task) {
+      const makeActive = !task.active;
+      tasks.forEach(function (item) { item.active = item === task ? makeActive : false; });
+      saveTasks();
+      syncRows();
+      refreshLabel();
+    }
+
+    function deleteTask(task, row) {
+      const index = tasks.indexOf(task);
+      if (index < 0) return;
+      tasks.splice(index, 1);
+      saveTasks();
+      playSound('delete');
+      animateRowOut(row, function () { row.remove(); });
+      if (task.active) refreshLabel();
+      scheduleUndo(task, index);
+      updateEmpty();
+      if (!tasks.some(function (item) { return item.done; })) {
+        doneGroup.hidden = true;
+        doneList.hidden = true;
+        doneToggle.setAttribute('aria-expanded', 'false');
+      }
+    }
+
+    function scheduleUndo(task, index) {
+      if (undoState) window.clearTimeout(undoState.timer);
+      undoState = {
+        task: task,
+        index: index,
+        timer: window.setTimeout(clearUndo, UNDO_WINDOW),
+      };
+      undoBar.hidden = false;
+    }
+
+    function clearUndo() {
+      if (undoState) window.clearTimeout(undoState.timer);
+      undoState = null;
+      undoBar.hidden = true;
+    }
+
+    function undoDelete() {
+      if (!undoState) return;
+      const task = undoState.task;
+      const index = undoState.index;
+      clearUndo();
+      tasks.splice(Math.min(index, tasks.length), 0, task);
+      saveTasks();
+      renderAll();
+      refreshLabel();
+    }
+
+    function startEdit(task, row) {
+      const title = row.querySelector('.task-title');
+      if (!title || row.dataset.editing === '1') return;
+      row.dataset.editing = '1';
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'task-edit';
+      input.value = task.title;
+      input.setAttribute('aria-label', 'Edit task');
+      title.replaceWith(input);
+      input.focus();
+      input.select();
+
+      let closed = false;
+      const close = function (save) {
+        if (closed) return;
+        closed = true;
+        const value = input.value.trim();
+        if (save && value && value !== task.title) {
+          task.title = value;
+          saveTasks();
+          title.textContent = value;
+          title.setAttribute('aria-label', value);
+          if (task.active) refreshLabel();
+        }
+        input.replaceWith(title);
+        delete row.dataset.editing;
+        if (title.tagName === 'BUTTON') title.focus();
+      };
+
+      input.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          close(true);
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          close(false);
+        }
+      });
+      input.addEventListener('blur', function () { close(true); });
+    }
+
+    primaryBtn.addEventListener('click', function () {
+      if (state.running) {
+        playSound('pause');
+        pause();
+      } else {
+        playSound('start');
+        start();
+      }
+    });
+
+    resetBtn.addEventListener('click', function () {
+      playSound('reset');
+      resetTimer();
+    });
+
+    segmentEls.forEach(function (el) {
+      el.addEventListener('click', function () {
+        playSound('tap');
+        switchMode(el.dataset.mode);
+      });
+    });
+
+    muteBtn.addEventListener('click', function () {
+      muted = !muted;
+      writeMuted(muted);
+      renderMute();
+      if (muted) stopAlarm();
+    });
+
+    startBreakBtn.addEventListener('click', function () {
+      stopAlarm();
+      switchMode(state.mode);
+      playSound('start');
+      start();
+    });
+
+    addFiveBtn.addEventListener('click', function () {
+      stopAlarm();
+      state.finished = false;
+      state.totalMs = 5 * 60000;
+      state.remainingMs = state.totalMs;
+      refreshLabel();
+      showTimerControls();
+      playSound('start');
+      start();
+    });
+
+    document.addEventListener('click', function () {
+      stopAlarm();
+    }, true);
+
+    taskForm.addEventListener('submit', function (event) {
+      event.preventDefault();
+      const title = taskInput.value.trim();
+      if (!title) return;
+      taskInput.value = '';
+      addTask(title);
+      taskInput.focus();
+    });
+
+    doneToggle.addEventListener('click', function () {
+      const expanded = doneToggle.getAttribute('aria-expanded') === 'true';
+      doneToggle.setAttribute('aria-expanded', String(!expanded));
+      doneList.hidden = expanded;
+    });
+
+    undoBtn.addEventListener('click', undoDelete);
+
+    tasks = loadTasks();
+    let activeSeen = false;
+    tasks.forEach(function (task) {
+      if (!task.active) return;
+      if (activeSeen || task.done) task.active = false;
+      else activeSeen = true;
+    });
+
+    muted = readMuted();
+    renderMute();
+    updateSegments();
+    renderDots();
+    renderAll();
+    refreshLabel();
+    render();
+  </script>
+</body>
+</html>
